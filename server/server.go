@@ -3,6 +3,7 @@ package server
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -11,8 +12,15 @@ import (
 func Start() error {
 	mux := mux.NewRouter()
 
-	mux.PathPrefix("/files").Methods(http.MethodGet).Handler(
-		http.StripPrefix("/files", http.FileServer(http.Dir("./static"))),
+	mux.PathPrefix("/files").Methods(http.MethodGet).HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasSuffix(r.RequestURI, "/") {
+				http.StripPrefix("/files", http.FileServer(http.Dir("./static"))).ServeHTTP(w, r)
+				return
+			}
+
+			listingHandler{"./static"}.ServeHTTP(w, r)
+		},
 	)
 
 	srv := http.Server{
