@@ -14,6 +14,8 @@ import (
 func Start() error {
 	mux := mux.NewRouter()
 
+	mux.Use(basicAuthMiddleware)
+
 	mux.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			parsed, err := url.Parse(r.RequestURI)
