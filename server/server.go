@@ -38,7 +38,7 @@ func Start() error {
 	)
 
 	srv := http.Server{
-		Addr:         ":9000",
+		Addr:         ":8000",
 		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
