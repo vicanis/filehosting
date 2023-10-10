@@ -105,7 +105,9 @@ func listingHandler(baseDir string) http.Handler {
 									</a>
 								</span>
 
-								<div>{{.Info.Size | formatsize}}</div>
+								{{if not .IsDir}}
+									<div>{{.Info.Size | formatsize}}</div>
+								{{end}}
 
 								<div class="flex gap-3">
 									{{if .IsDir}}
