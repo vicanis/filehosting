@@ -16,7 +16,7 @@ type listingHandler struct {
 }
 
 func (h listingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	uri := strings.TrimPrefix(r.RequestURI, "/files")
+	uri := r.RequestURI
 
 	dir := h.Dir + "/" + uri
 
@@ -45,6 +45,16 @@ func (h listingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return strings.Compare(trimmed[i].Name(), trimmed[j].Name()) < 0
 	})
 
+	backdir := strings.TrimRight(uri, "/")
+	if backdir != "" {
+		slashPos := strings.LastIndex(backdir, "/")
+		backdir = backdir[:slashPos]
+	}
+
+	if backdir == "" {
+		backdir = "/"
+	}
+
 	buf := bytes.NewBuffer(nil)
 
 	err = template.Must(template.New("listing").Parse(`
@@ -53,26 +63,47 @@ func (h listingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		<head>
 			<title>{{.Dir}} - File listing</title>
 			<script src="https://cdn.tailwindcss.com"></script>
+			<link rel="stylesheet" href="https://maxst.icons8.com/vue-static/landings/line-awesome/line-awesome/1.3.0/css/line-awesome.min.css">
 		</head>
 		<body>
 			<div class="max-w-lg mx-auto">
-				<div class="text-lg text-center">{{.Dir}}</div>
+				<div class="flex items-center justify-between py-2 mb-2 border-b-2">
+					{{if ne .Dir "/"}}
+						<a href="{{.Backdir}}">
+							<span class="las la-angle-left"></span>
+							<span>Back</span>
+						</a>
+					{{else}}
+						<span>Root</span>
+					{{end}}
+					<div class="text-lg text-center">{{.Dir}}</div>
+				</div>
+
+				{{$dir := .Dir}}
 				<ul>
 					{{range .Items}}
-						<li class="py-2 border-t-2 my-2">
-							{{.Name}}
-						</li>
+						<a href="{{$dir}}{{.Name}}">
+							<li class="hover:bg-gray-200 hover:cursor-pointer p-2 flex items-center justify-content gap-2">
+								{{if .IsDir}}
+									<div class="las la-folder"></div>
+								{{end}}
+
+								<span class="grow">{{.Name}}</span>
+							</li>
+						</a>
 					{{end}}
 				</ul>
 			</div>
 		</body>
 		</html>
 	`)).Execute(buf, struct {
-		Dir   string
-		Items []fs.DirEntry
+		Dir     string
+		Backdir string
+		Items   []fs.DirEntry
 	}{
-		Dir:   uri,
-		Items: trimmed,
+		Dir:     uri,
+		Backdir: backdir,
+		Items:   trimmed,
 	})
 
 	if err != nil {

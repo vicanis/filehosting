@@ -12,10 +12,10 @@ import (
 func Start() error {
 	mux := mux.NewRouter()
 
-	mux.PathPrefix("/files").Methods(http.MethodGet).HandlerFunc(
+	mux.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasSuffix(r.RequestURI, "/") {
-				http.StripPrefix("/files", http.FileServer(http.Dir("./static"))).ServeHTTP(w, r)
+				http.FileServer(http.Dir("./static")).ServeHTTP(w, r)
 				return
 			}
 
