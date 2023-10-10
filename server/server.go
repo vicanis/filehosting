@@ -1,8 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,12 +16,24 @@ func Start() error {
 
 	mux.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			if !strings.HasSuffix(r.RequestURI, "/") {
+			parsed, err := url.Parse(r.RequestURI)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, "request parse failed: %s", err)
+				return
+			}
+
+			if !strings.HasSuffix(parsed.Path, "/") {
 				http.FileServer(http.Dir("./static")).ServeHTTP(w, r)
 				return
 			}
 
-			listingHandler{"./static"}.ServeHTTP(w, r)
+			if parsed.Query().Has("pack") {
+				packHandler("./static").ServeHTTP(w, r)
+				return
+			}
+
+			listingHandler("./static").ServeHTTP(w, r)
 		},
 	)
 

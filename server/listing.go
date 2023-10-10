@@ -6,70 +6,71 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
 )
 
-type listingHandler struct {
-	Dir string
-}
+func listingHandler(baseDir string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parsed, _ := url.Parse(r.RequestURI)
 
-func (h listingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	uri := r.RequestURI
+		uri := parsed.Path
 
-	dir := h.Dir + "/" + uri
+		dir := baseDir + "/" + uri
 
-	list, err := os.ReadDir(dir)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "listing failed: %s", err)
-		return
-	}
-
-	trimmed := make([]fs.DirEntry, 0)
-
-	for _, item := range list {
-		if !strings.HasPrefix(item.Name(), ".") {
-			trimmed = append(trimmed, item)
-		}
-	}
-
-	sort.Slice(trimmed, func(i, j int) bool {
-		if trimmed[i].IsDir() && !trimmed[j].IsDir() {
-			return true
-		} else if !trimmed[i].IsDir() && trimmed[j].IsDir() {
-			return false
+		dirItems, err := os.ReadDir(dir)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "listing failed: %s", err)
+			return
 		}
 
-		return strings.Compare(trimmed[i].Name(), trimmed[j].Name()) < 0
-	})
+		trimmed := make([]fs.DirEntry, 0)
 
-	backdir := strings.TrimRight(uri, "/")
-	if backdir != "" {
-		slashPos := strings.LastIndex(backdir, "/")
-		backdir = backdir[:slashPos]
-	}
+		for _, item := range dirItems {
+			if !strings.HasPrefix(item.Name(), ".") {
+				trimmed = append(trimmed, item)
+			}
+		}
 
-	if backdir == "" {
-		backdir = "/"
-	}
+		sort.Slice(trimmed, func(i, j int) bool {
+			if trimmed[i].IsDir() && !trimmed[j].IsDir() {
+				return true
+			} else if !trimmed[i].IsDir() && trimmed[j].IsDir() {
+				return false
+			}
 
-	buf := bytes.NewBuffer(nil)
+			return strings.Compare(trimmed[i].Name(), trimmed[j].Name()) < 0
+		})
 
-	err = template.Must(template.New("listing").Parse(`
+		prevDir := strings.TrimRight(uri, "/")
+		if prevDir != "" {
+			slashPos := strings.LastIndex(prevDir, "/")
+			prevDir = prevDir[:slashPos]
+		}
+
+		if prevDir == "" {
+			prevDir = "/"
+		}
+
+		buf := bytes.NewBuffer(nil)
+
+		err = template.Must(template.New("listing").Parse(`
 		<!DOCTYPE html>
 		<html>
 		<head>
 			<title>{{.Dir}} - File listing</title>
 			<script src="https://cdn.tailwindcss.com"></script>
-			<link rel="stylesheet" href="https://maxst.icons8.com/vue-static/landings/line-awesome/line-awesome/1.3.0/css/line-awesome.min.css">
+			<script src="https://cdn.jsdelivr.net/npm/@mdi/font@7.3.67/scripts/verify.min.js"></script>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.3.67/css/materialdesignicons.min.css" integrity="sha256-akFxqbgnSEftsMESNX9beHAwLq+cU+tEQPGC8Ft9U2Y=" crossorigin="anonymous">
 		</head>
 		<body>
 			<div class="max-w-lg mx-auto">
 				<div class="flex items-center justify-between py-2 mb-2 border-b-2">
 					{{if ne .Dir "/"}}
-						<a href="{{.Backdir}}">
+						<a href="{{.PrevDir}}">
 							<span class="las la-angle-left"></span>
 							<span>Back</span>
 						</a>
@@ -80,40 +81,58 @@ func (h listingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				</div>
 
 				{{$dir := .Dir}}
+
 				<ul>
 					{{range .Items}}
-						<a href="{{$dir}}{{.Name}}">
-							<li class="hover:bg-gray-200 hover:cursor-pointer p-2 flex items-center justify-content gap-2">
-								{{if .IsDir}}
-									<div class="las la-folder"></div>
-								{{end}}
+						<li class="hover:bg-gray-200 hover:cursor-pointer p-2 flex items-center justify-content gap-2">
+							{{if .IsDir}}
+								<span class="mdi mdi-folder-outline"></span>
+							{{else}}
+								<span class="mdi mdi-file-document-outline"></span>
+							{{end}}
 
-								<span class="grow">{{.Name}}</span>
-							</li>
-						</a>
+							<span class="grow">
+								<a href="{{$dir}}{{.Name}}">
+									{{.Name}}
+								</a>
+							</span>
+
+							<div class="flex gap-3">
+								{{if .IsDir}}
+									<a class="p-1 hover:bg-gray-400 rounded-md" href="{{$dir}}{{.Name}}?pack" title="Download ZIP archive">
+										<span class="mdi mdi-folder-zip"></span>
+									</a>
+								{{else}}
+									<a class="p-1 hover:bg-gray-400 rounded-md" href="{{$dir}}{{.Name}}" title="Download file">
+										<span class="mdi mdi-file-download-outline"></span>
+									</a>
+								{{end}}
+							</div>
+						</li>
 					{{end}}
 				</ul>
 			</div>
 		</body>
 		</html>
 	`)).Execute(buf, struct {
-		Dir     string
-		Backdir string
-		Items   []fs.DirEntry
-	}{
-		Dir:     uri,
-		Backdir: backdir,
-		Items:   trimmed,
+			Dir     string
+			PrevDir string
+			Items   []fs.DirEntry
+		}{
+			Dir:     uri,
+			PrevDir: prevDir,
+			Items:   trimmed,
+		})
+
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "render failed: %s", err)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "text/html")
+
+		fmt.Fprint(w, buf.String())
 	})
-
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "render failed: %s", err)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "text/html")
-
-	fmt.Fprint(w, buf.String())
 }
