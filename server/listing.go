@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -57,64 +59,77 @@ func listingHandler(baseDir string) http.Handler {
 
 		buf := bytes.NewBuffer(nil)
 
-		err = template.Must(template.New("listing").Parse(`
-		<!DOCTYPE html>
-		<html>
-		<head>
-			<title>{{.Dir}} - File listing</title>
-			<script src="https://cdn.tailwindcss.com"></script>
-			<script src="https://cdn.jsdelivr.net/npm/@mdi/font@7.3.67/scripts/verify.min.js"></script>
-			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.3.67/css/materialdesignicons.min.css" integrity="sha256-akFxqbgnSEftsMESNX9beHAwLq+cU+tEQPGC8Ft9U2Y=" crossorigin="anonymous">
-		</head>
-		<body>
-			<div class="max-w-lg mx-auto">
-				<div class="flex items-center justify-between py-2 mb-2 border-b-2">
-					{{if ne .Dir "/"}}
-						<a href="{{.PrevDir}}">
-							<span class="las la-angle-left"></span>
-							<span>Back</span>
-						</a>
-					{{else}}
-						<span>Root</span>
-					{{end}}
-					<div class="text-lg text-center">{{.Dir}}</div>
-				</div>
+		tpl := template.New("listing")
 
-				{{$dir := .Dir}}
+		tpl = tpl.Funcs(template.FuncMap{
+			"formatsize": formatFileSize,
+		})
 
-				<ul>
-					{{range .Items}}
-						<li class="hover:bg-gray-200 hover:cursor-pointer p-2 flex items-center justify-content gap-2">
-							{{if .IsDir}}
-								<span class="mdi mdi-folder-outline"></span>
-							{{else}}
-								<span class="mdi mdi-file-document-outline"></span>
-							{{end}}
+		tpl, err = tpl.Parse(`
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<title>{{.Dir}} - File listing</title>
+				<script src="https://cdn.tailwindcss.com"></script>
+				<script src="https://cdn.jsdelivr.net/npm/@mdi/font@7.3.67/scripts/verify.min.js"></script>
+				<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.3.67/css/materialdesignicons.min.css" integrity="sha256-akFxqbgnSEftsMESNX9beHAwLq+cU+tEQPGC8Ft9U2Y=" crossorigin="anonymous">
+			</head>
+			<body>
+				<div class="max-w-lg mx-auto">
+					<div class="flex items-center justify-between py-2 mb-2 border-b-2">
+						{{if ne .Dir "/"}}
+							<a href="{{.PrevDir}}">
+								<span class="las la-angle-left"></span>
+								<span>Back</span>
+							</a>
+						{{else}}
+							<span>Root</span>
+						{{end}}
+						<div class="text-lg text-center">{{.Dir}}</div>
+					</div>
 
-							<span class="grow">
-								<a href="{{$dir}}{{.Name}}">
-									{{.Name}}
-								</a>
-							</span>
+					{{$dir := .Dir}}
 
-							<div class="flex gap-3">
+					<ul>
+						{{range .Items}}
+							<li class="hover:bg-gray-200 hover:cursor-pointer p-2 flex items-center justify-content gap-2">
 								{{if .IsDir}}
-									<a class="p-1 hover:bg-gray-400 rounded-md" href="{{$dir}}{{.Name}}?pack" title="Download ZIP archive">
-										<span class="mdi mdi-folder-zip"></span>
-									</a>
+									<span class="mdi mdi-folder-outline"></span>
 								{{else}}
-									<a class="p-1 hover:bg-gray-400 rounded-md" href="{{$dir}}{{.Name}}" title="Download file">
-										<span class="mdi mdi-file-download-outline"></span>
-									</a>
+									<span class="mdi mdi-file-document-outline"></span>
 								{{end}}
-							</div>
-						</li>
-					{{end}}
-				</ul>
-			</div>
-		</body>
-		</html>
-	`)).Execute(buf, struct {
+
+								<span class="grow">
+									<a href="{{$dir}}{{.Name}}">
+										{{.Name}}
+									</a>
+								</span>
+
+								<div>{{.Info.Size | formatsize}}</div>
+
+								<div class="flex gap-3">
+									{{if .IsDir}}
+										<a class="p-1 hover:bg-gray-400 rounded-md" href="{{$dir}}{{.Name}}?pack" title="Download ZIP archive">
+											<span class="mdi mdi-folder-zip"></span>
+										</a>
+									{{else}}
+										<a class="p-1 hover:bg-gray-400 rounded-md" href="{{$dir}}{{.Name}}" title="Download file">
+											<span class="mdi mdi-file-download-outline"></span>
+										</a>
+									{{end}}
+								</div>
+							</li>
+						{{end}}
+					</ul>
+				</div>
+			</body>
+			</html>
+		`)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		err = tpl.Execute(buf, struct {
 			Dir     string
 			PrevDir string
 			Items   []fs.DirEntry
@@ -135,4 +150,21 @@ func listingHandler(baseDir string) http.Handler {
 
 		fmt.Fprint(w, buf.String())
 	})
+}
+
+func formatFileSize(size int64) string {
+	for _, set := range []struct {
+		Coef   float64
+		Suffix string
+	}{
+		{math.Pow(1024, 3), "Gb"},
+		{math.Pow(1024, 2), "Mb"},
+		{math.Pow(1024, 1), "Kb"},
+	} {
+		if float64(size) > 0.5*set.Coef {
+			return fmt.Sprintf("%.2f%s", float64(size)/set.Coef, set.Suffix)
+		}
+	}
+
+	return fmt.Sprintf("%db", size)
 }
